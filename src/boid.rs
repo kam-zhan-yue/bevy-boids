@@ -3,24 +3,20 @@ use rand::Rng;
 
 const BOID_COLOUR: Color = Color::srgb(0.1, 0.2, 0.12);
 const BOID_LENGTH: f32 = 15.;
-const BOID_SPEED: f32 = 20.;
+const BOID_SPEED: f32 = 1000.;
+const SCREEN_X: f32 = 1000.;
+const SCREEN_Y: f32 = 1000.;
 
-#[derive(Bundle)]
-pub struct BoidBundle {
-    pub boid: Boid,
-    pub velocity: Velocity,
-    pub acceleration: Acceleration,
+#[derive(Component, Clone, PartialEq)]
+#[require(Velocity, Acceleration)]
+pub struct BoidData {
+    pub separation: Vec2,
+    pub alignment: Vec2,
+    pub cohesion: Vec2,
 }
 
-#[derive(Component, Debug, Clone, PartialEq)]
-pub struct Boid {
-    separation: Vec2,
-    alignment: Vec2,
-    cohesion: Vec2,
-}
-
-impl Boid {
-    pub fn new() -> Self {
+impl Default for BoidData {
+    fn default() -> Self {
         Self {
             separation: Vec2::ZERO,
             alignment: Vec2::ZERO,
@@ -29,18 +25,25 @@ impl Boid {
     }
 }
 
-#[derive(Component, Debug)]
+#[derive(Component)]
+#[require(BoidData, Velocity, Acceleration)]
+pub struct Boid;
+
+#[derive(Component, Default, Debug)]
 pub struct Velocity(Vec2);
 
-#[derive(Component, Debug)]
+#[derive(Component, Default, Debug)]
 pub struct Acceleration(Vec2);
 
 pub struct BoidPlugin;
 
 impl Plugin for BoidPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_boids);
-        app.add_systems(Update, (update_velocity, update_position, simulate_boids));
+        app.add_systems(Startup, setup);
+        app.add_systems(
+            Update,
+            (update_velocity, update_position, simulate_boids, bound),
+        );
     }
 }
 
@@ -67,11 +70,8 @@ fn spawn_boid_group(
             Mesh2d(meshes.add(Triangle2d::default())),
             MeshMaterial2d(materials.add(BOID_COLOUR)),
             random_transform,
-            BoidBundle {
-                boid: Boid::new(),
-                velocity: Velocity(starting_velocity),
-                acceleration: Acceleration(Vec2::ZERO),
-            },
+            Boid,
+            Velocity(starting_velocity),
         ));
     }
 }
@@ -88,7 +88,25 @@ fn update_position(mut query: Query<(&Velocity, &mut Transform)>, time: Res<Time
     }
 }
 
-fn spawn_boids(
+fn bound(mut query: Query<&mut Transform>) {
+    for mut transform in query.iter_mut() {
+        let mut translation = transform.translation;
+        if translation.x > SCREEN_X / 2. {
+            translation.x = -SCREEN_X / 2.;
+        } else if translation.x < -SCREEN_X / 2. {
+            translation.x = SCREEN_X / 2.;
+        }
+
+        if translation.y > SCREEN_Y / 2. {
+            translation.y = -SCREEN_Y / 2.;
+        } else if translation.y < -SCREEN_Y / 2. {
+            translation.y = SCREEN_Y / 2.;
+        }
+        transform.translation = translation;
+    }
+}
+
+fn setup(
     mut commands: Commands,
     meshes: ResMut<Assets<Mesh>>,
     materials: ResMut<Assets<ColorMaterial>>,
@@ -109,7 +127,7 @@ fn can_see(transform1: &GlobalTransform, transform2: &GlobalTransform) -> bool {
     true
 }
 
-fn simulate_boids(mut query: Query<(&mut GlobalTransform, &mut Boid, &mut Velocity)>) {
+fn simulate_boids(mut query: Query<(&mut GlobalTransform, &mut BoidData, &mut Velocity)>) {
     let mut iter = query.iter_combinations_mut();
     while let Some([(transform1, mut boid1, _), (transform2, boid2, velocity2)]) = iter.fetch_next()
     {
