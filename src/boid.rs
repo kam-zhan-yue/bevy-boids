@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, reflect::Access};
 use rand::Rng;
 
 const BOID_COLOUR: Color = Color::srgb(0.1, 0.2, 0.12);
@@ -6,6 +6,44 @@ const BOID_LENGTH: f32 = 15.;
 const BOID_SPEED: f32 = 1000.;
 const SCREEN_X: f32 = 1000.;
 const SCREEN_Y: f32 = 1000.;
+
+#[derive(Resource, Debug)]
+pub struct BoidSettings {
+    // Speed
+    pub min_speed: f32,
+    pub max_speed: f32,
+    pub max_steer_force: f32,
+    // Vision
+    pub vision_radius: f32,
+    pub vision_angle: f32,
+    // Weights
+    pub separation_weight: f32,
+    pub alignment_weight: f32,
+    pub cohesion_weight: f32,
+
+    // Flags
+    pub separation: bool,
+    pub alignment: bool,
+    pub cohesion: bool,
+}
+
+impl Default for BoidSettings {
+    fn default() -> Self {
+        Self {
+            min_speed: 70.,
+            max_speed: 200.,
+            max_steer_force: 100.,
+            vision_radius: 10.,
+            vision_angle: 360.,
+            separation_weight: 1.,
+            alignment_weight: 1.,
+            cohesion_weight: 1.,
+            separation: true,
+            alignment: true,
+            cohesion: true,
+        }
+    }
+}
 
 #[derive(Component, Clone, PartialEq)]
 #[require(Velocity, Acceleration)]
@@ -39,6 +77,7 @@ pub struct BoidPlugin;
 
 impl Plugin for BoidPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<BoidSettings>();
         app.add_systems(Startup, setup);
         app.add_systems(
             Update,
@@ -127,9 +166,19 @@ fn can_see(transform1: &GlobalTransform, transform2: &GlobalTransform) -> bool {
     true
 }
 
-fn simulate_boids(mut query: Query<(&mut GlobalTransform, &mut BoidData, &mut Velocity)>) {
+fn simulate_boids(
+    mut query: Query<(
+        &mut GlobalTransform,
+        &mut BoidData,
+        &mut Velocity,
+        &mut Acceleration,
+    )>,
+    settings: Res<BoidSettings>,
+) {
+    // Calculate the separation, alignment, and cohesion for each boid
     let mut iter = query.iter_combinations_mut();
-    while let Some([(transform1, mut boid1, _), (transform2, boid2, velocity2)]) = iter.fetch_next()
+    while let Some([(transform1, mut boid1, _, _), (transform2, boid2, velocity2, _)]) =
+        iter.fetch_next()
     {
         if *boid1 == *boid2 || !can_see(&transform1, &transform2) {
             continue;
@@ -141,6 +190,31 @@ fn simulate_boids(mut query: Query<(&mut GlobalTransform, &mut BoidData, &mut Ve
         boid1.alignment = alignment;
         boid1.cohesion = cohesion;
     }
+
+    // Simulate the acceleration / velocity for each boid
+    for (_, boid, velocity, mut acceleration) in query.iter_mut() {
+        let separation_force = steer_towards(&boid.separation, &settings, &velocity);
+        let alignment_force = steer_towards(&boid.alignment, &settings, &velocity);
+        let cohesion_force = steer_towards(&boid.cohesion, &settings, &velocity);
+
+        if settings.separation {
+            acceleration.0 *= separation_force * settings.separation_weight;
+        }
+        if settings.alignment {
+            acceleration.0 *= alignment_force * settings.alignment_weight;
+        }
+        if settings.cohesion {
+            acceleration.0 *= cohesion_force * settings.cohesion_weight;
+        }
+    }
+}
+
+fn steer_towards(target: &Vec2, settings: &Res<BoidSettings>, velocity: &Velocity) -> Vec2 {
+    if target.length() == 0. {
+        return Vec2::ZERO;
+    }
+    let mut v = target.normalize() * settings.max_speed - velocity.0;
+    v.clamp_length(-settings.max_steer_force, settings.max_steer_force)
 }
 
 fn get_separation_force(transform1: &GlobalTransform, transform2: &GlobalTransform) -> Vec2 {
