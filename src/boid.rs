@@ -1,11 +1,14 @@
-use bevy::{prelude::*, reflect::Access};
+use bevy::prelude::*;
 use rand::Rng;
 
 const BOID_COLOUR: Color = Color::srgb(0.1, 0.2, 0.12);
 const BOID_LENGTH: f32 = 15.;
-const BOID_SPEED: f32 = 1000.;
+const BOID_SPEED: f32 = 20.;
 const SCREEN_X: f32 = 1000.;
 const SCREEN_Y: f32 = 1000.;
+
+#[derive(Resource, Debug, Default)]
+struct NextBoidId(u32);
 
 #[derive(Resource, Debug)]
 pub struct BoidSettings {
@@ -45,7 +48,7 @@ impl Default for BoidSettings {
     }
 }
 
-#[derive(Component, Clone, PartialEq)]
+#[derive(Component, Clone, PartialEq, Debug)]
 #[require(Velocity, Acceleration)]
 pub struct BoidData {
     pub separation: Vec2,
@@ -63,9 +66,11 @@ impl Default for BoidData {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, PartialEq, Debug)]
 #[require(BoidData, Velocity, Acceleration)]
-pub struct Boid;
+pub struct Boid {
+    id: u32,
+}
 
 #[derive(Component, Default, Debug)]
 pub struct Velocity(Vec2);
@@ -78,6 +83,7 @@ pub struct BoidPlugin;
 impl Plugin for BoidPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<BoidSettings>();
+        app.init_resource::<NextBoidId>();
         app.add_systems(Startup, setup);
         app.add_systems(
             Update,
@@ -90,6 +96,7 @@ fn spawn_boid_group(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut next_boid_id: ResMut<NextBoidId>,
     group_num: i32,
     position: Vec2,
     radius: f32,
@@ -104,12 +111,13 @@ fn spawn_boid_group(
         let random_radius = rng.gen_range(-radius..radius);
         let mut random_transform = transform;
         random_transform.translation += random_unit_vector * random_radius;
-
+        let boid_id = next_boid_id.0;
+        next_boid_id.0 += 1;
         commands.spawn((
             Mesh2d(meshes.add(Triangle2d::default())),
             MeshMaterial2d(materials.add(BOID_COLOUR)),
             random_transform,
-            Boid,
+            Boid { id: boid_id },
             Velocity(starting_velocity),
         ));
     }
@@ -149,13 +157,15 @@ fn setup(
     mut commands: Commands,
     meshes: ResMut<Assets<Mesh>>,
     materials: ResMut<Assets<ColorMaterial>>,
+    next_boid_id: ResMut<NextBoidId>,
 ) {
     commands.spawn(Camera2d);
     spawn_boid_group(
         commands,
         meshes,
         materials,
-        10,
+        next_boid_id,
+        2,
         Vec2::ZERO,
         100.0,
         Vec2::Y * BOID_SPEED,
@@ -168,6 +178,7 @@ fn can_see(transform1: &GlobalTransform, transform2: &GlobalTransform) -> bool {
 
 fn simulate_boids(
     mut query: Query<(
+        &Boid,
         &mut GlobalTransform,
         &mut BoidData,
         &mut Velocity,
@@ -177,34 +188,41 @@ fn simulate_boids(
 ) {
     // Calculate the separation, alignment, and cohesion for each boid
     let mut iter = query.iter_combinations_mut();
-    while let Some([(transform1, mut boid1, _, _), (transform2, boid2, velocity2, _)]) =
-        iter.fetch_next()
+    while let Some(
+        [(boid1, transform1, mut data1, _, _), (boid2, transform2, data2, velocity2, _)],
+    ) = iter.fetch_next()
     {
         if *boid1 == *boid2 || !can_see(&transform1, &transform2) {
+            println!("Boid1: {:?} Boid2: {:?}", boid1, boid2);
             continue;
         }
+        println!("No");
         let separation = get_separation_force(&transform1, &transform2);
         let alignment = get_alignment_force(&velocity2);
         let cohesion = get_cohesion_force(&transform2);
-        boid1.separation = separation;
-        boid1.alignment = alignment;
-        boid1.cohesion = cohesion;
+        data1.separation = separation;
+        data1.alignment = alignment;
+        data1.cohesion = cohesion;
     }
 
     // Simulate the acceleration / velocity for each boid
-    for (_, boid, velocity, mut acceleration) in query.iter_mut() {
+    for (_, _, boid, velocity, mut acceleration) in query.iter_mut() {
         let separation_force = steer_towards(&boid.separation, &settings, &velocity);
         let alignment_force = steer_towards(&boid.alignment, &settings, &velocity);
         let cohesion_force = steer_towards(&boid.cohesion, &settings, &velocity);
 
         if settings.separation {
-            acceleration.0 *= separation_force * settings.separation_weight;
+            acceleration.0 += separation_force * settings.separation_weight;
+            println!(
+                "Separation {:?} Force {:?} Separation Weight: {:?}",
+                acceleration.0, separation_force, settings.separation_weight
+            );
         }
         if settings.alignment {
-            acceleration.0 *= alignment_force * settings.alignment_weight;
+            acceleration.0 += alignment_force * settings.alignment_weight;
         }
         if settings.cohesion {
-            acceleration.0 *= cohesion_force * settings.cohesion_weight;
+            acceleration.0 += cohesion_force * settings.cohesion_weight
         }
     }
 }
@@ -213,13 +231,15 @@ fn steer_towards(target: &Vec2, settings: &Res<BoidSettings>, velocity: &Velocit
     if target.length() == 0. {
         return Vec2::ZERO;
     }
-    let mut v = target.normalize() * settings.max_speed - velocity.0;
+    let v = target.normalize() * settings.max_speed - velocity.0;
+    println!("Velocity {:?}", v);
     v.clamp_length(-settings.max_steer_force, settings.max_steer_force)
 }
 
 fn get_separation_force(transform1: &GlobalTransform, transform2: &GlobalTransform) -> Vec2 {
     let difference: Vec3 = transform2.translation() - transform1.translation();
     let force: Vec3 = difference.normalize() / difference.length_squared();
+    println!("Separation Force {:?}", force);
     return Vec2::new(force.x, force.y);
 }
 
