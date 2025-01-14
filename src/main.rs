@@ -1,8 +1,10 @@
 use bevy::prelude::*;
 
 mod boid;
+mod debug;
 
 use boid::BoidPlugin;
+use debug::DebugPlugin;
 
 fn main() {
     App::new()
@@ -12,6 +14,7 @@ fn main() {
             brightness: 750.0,
         })
         .add_plugins(BoidPlugin)
+        .add_plugins(DebugPlugin)
         .add_plugins(DefaultPlugins)
         .run();
 }

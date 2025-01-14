@@ -35,15 +35,15 @@ impl Default for BoidSettings {
         Self {
             min_speed: 70.,
             max_speed: 200.,
-            max_steer_force: 100.,
-            vision_radius: 10.,
+            max_steer_force: 10.,
+            vision_radius: 1.,
             vision_angle: 360.,
             separation_weight: 1.,
             alignment_weight: 1.,
             cohesion_weight: 1.,
             separation: true,
-            alignment: true,
-            cohesion: true,
+            alignment: false,
+            cohesion: false,
         }
     }
 }
@@ -93,10 +93,10 @@ impl Plugin for BoidPlugin {
 }
 
 fn spawn_boid_group(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut next_boid_id: ResMut<NextBoidId>,
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+    next_boid_id: &mut ResMut<NextBoidId>,
     group_num: i32,
     position: Vec2,
     radius: f32,
@@ -123,9 +123,19 @@ fn spawn_boid_group(
     }
 }
 
-fn update_velocity(mut query: Query<(&Acceleration, &mut Velocity)>, time: Res<Time>) {
+fn update_velocity(
+    mut query: Query<(&Acceleration, &mut Velocity)>,
+    time: Res<Time>,
+    settings: Res<BoidSettings>,
+) {
     for (acceleration, mut velocity) in query.iter_mut() {
         velocity.0 += acceleration.0 * time.delta_secs();
+        // Clamp the velocity and final speed
+        let final_speed = velocity
+            .0
+            .length()
+            .clamp(settings.min_speed, settings.max_speed);
+        velocity.0 = velocity.0.normalize_or_zero() * final_speed;
     }
 }
 
@@ -155,16 +165,16 @@ fn bound(mut query: Query<&mut Transform>) {
 
 fn setup(
     mut commands: Commands,
-    meshes: ResMut<Assets<Mesh>>,
-    materials: ResMut<Assets<ColorMaterial>>,
-    next_boid_id: ResMut<NextBoidId>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut next_boid_id: ResMut<NextBoidId>,
 ) {
     commands.spawn(Camera2d);
     spawn_boid_group(
-        commands,
-        meshes,
-        materials,
-        next_boid_id,
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        &mut next_boid_id,
         2,
         Vec2::ZERO,
         100.0,
@@ -187,22 +197,30 @@ fn simulate_boids(
     settings: Res<BoidSettings>,
 ) {
     // Calculate the separation, alignment, and cohesion for each boid
+    // Combinations doesn't give us order, so we need to apply forces for both boids
     let mut iter = query.iter_combinations_mut();
     while let Some(
-        [(boid1, transform1, mut data1, _, _), (boid2, transform2, data2, velocity2, _)],
+        [(boid1, transform1, mut data1, velocity1, _), (boid2, transform2, mut data2, velocity2, _)],
     ) = iter.fetch_next()
     {
         if *boid1 == *boid2 || !can_see(&transform1, &transform2) {
-            println!("Boid1: {:?} Boid2: {:?}", boid1, boid2);
             continue;
         }
-        println!("No");
+        // Calculate it for first boid
         let separation = get_separation_force(&transform1, &transform2);
         let alignment = get_alignment_force(&velocity2);
         let cohesion = get_cohesion_force(&transform2);
         data1.separation = separation;
         data1.alignment = alignment;
         data1.cohesion = cohesion;
+
+        // Calculate it for second boid
+        let separation = get_separation_force(&transform2, &transform1);
+        let alignment = get_alignment_force(&velocity1);
+        let cohesion = get_cohesion_force(&transform1);
+        data2.separation = separation;
+        data2.alignment = alignment;
+        data2.cohesion = cohesion;
     }
 
     // Simulate the acceleration / velocity for each boid
@@ -213,10 +231,6 @@ fn simulate_boids(
 
         if settings.separation {
             acceleration.0 += separation_force * settings.separation_weight;
-            println!(
-                "Separation {:?} Force {:?} Separation Weight: {:?}",
-                acceleration.0, separation_force, settings.separation_weight
-            );
         }
         if settings.alignment {
             acceleration.0 += alignment_force * settings.alignment_weight;
@@ -232,7 +246,6 @@ fn steer_towards(target: &Vec2, settings: &Res<BoidSettings>, velocity: &Velocit
         return Vec2::ZERO;
     }
     let v = target.normalize() * settings.max_speed - velocity.0;
-    println!("Velocity {:?}", v);
     v.clamp_length(-settings.max_steer_force, settings.max_steer_force)
 }
 
