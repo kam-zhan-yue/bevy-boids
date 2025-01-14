@@ -73,7 +73,7 @@ pub struct Boid {
 }
 
 #[derive(Component, Default, Debug)]
-pub struct Velocity(Vec2);
+pub struct Velocity(pub Vec2);
 
 #[derive(Component, Default, Debug)]
 pub struct Acceleration(Vec2);
@@ -252,7 +252,7 @@ fn steer_towards(target: &Vec2, settings: &Res<BoidSettings>, velocity: &Velocit
 fn get_separation_force(transform1: &GlobalTransform, transform2: &GlobalTransform) -> Vec2 {
     let difference: Vec3 = transform2.translation() - transform1.translation();
     let force: Vec3 = difference.normalize() / difference.length_squared();
-    println!("Separation Force {:?}", force);
+    // println!("Separation Force {:?}", force);
     return Vec2::new(force.x, force.y);
 }
 

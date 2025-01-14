@@ -1,4 +1,4 @@
-use bevy::{math::VectorSpace, prelude::*};
+use bevy::prelude::*;
 
 use crate::boid::{Boid, BoidSettings, Velocity};
 
@@ -63,7 +63,7 @@ fn spawn_debug_visuals(
     let mut debug_velocity = commands.spawn((
         Mesh2d(meshes.add(Rectangle::new(DEBUG_VELOCITY_WIDTH, DEBUG_VELOCITY_LENGTH))),
         MeshMaterial2d(materials.add(DEBUG_VELOCITY_COLOUR)),
-        Transform::from_xyz(0., DEBUG_VELOCITY_LENGTH / 2., -0.5),
+        Transform::from_xyz(0., 0., -0.5),
         DebugVelocity,
     ));
 
@@ -71,7 +71,13 @@ fn spawn_debug_visuals(
 }
 
 fn update_debug_visuals(
-    mut query: Query<(Entity, &Velocity, &DebugRadius, &DebugVelocity), With<Boid>>,
+    mut query: Query<(&Parent, &mut Transform), With<DebugVelocity>>,
+    parent_query: Query<&Velocity>,
 ) {
-    for (entity, velocity, debug_radius, debug_velocity) in query.iter_mut() {}
+    for (parent, mut transform) in query.iter_mut() {
+        if let Ok(velocity) = parent_query.get(parent.get()) {
+            let angle = -(velocity.0.y.atan2(velocity.0.x));
+            transform.rotation = Quat::from_rotation_z(angle);
+        }
+    }
 }
