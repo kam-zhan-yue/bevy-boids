@@ -36,7 +36,7 @@ impl Default for BoidSettings {
             min_speed: 70.,
             max_speed: 200.,
             max_steer_force: 10.,
-            vision_radius: 1.,
+            vision_radius: 150.,
             vision_angle: 360.,
             separation_weight: 1.,
             alignment_weight: 1.,
@@ -182,8 +182,13 @@ fn setup(
     );
 }
 
-fn can_see(transform1: &GlobalTransform, transform2: &GlobalTransform) -> bool {
-    true
+fn can_see(
+    transform1: &GlobalTransform,
+    transform2: &GlobalTransform,
+    settings: &Res<BoidSettings>,
+) -> bool {
+    let distance = (transform2.translation() - transform1.translation()).length();
+    distance < settings.vision_radius
 }
 
 fn simulate_boids(
@@ -203,7 +208,7 @@ fn simulate_boids(
         [(boid1, transform1, mut data1, velocity1, _), (boid2, transform2, mut data2, velocity2, _)],
     ) = iter.fetch_next()
     {
-        if *boid1 == *boid2 || !can_see(&transform1, &transform2) {
+        if *boid1 == *boid2 || !can_see(&transform1, &transform2, &settings) {
             continue;
         }
         // Calculate it for first boid
